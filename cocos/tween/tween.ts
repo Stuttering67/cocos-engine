@@ -64,106 +64,39 @@ export class Tween<T> {
         this._target = target === undefined ? null : target;
     }
 
-    /**
-     * @en Sets tween tag
-     * @zh 设置缓动的标签
-     * @method tag
-     * @param tag @en The tag set for this tween @zh 为当前缓动设置的标签
-     */
-    tag (tag: number): Tween<T> {
-        this._tag = tag;
-        return this;
-    }
+    /**------------------------静态方法 用来停止动画----------------------------------**/
 
     /**
      * @en
-     * Insert an action or tween to this sequence.
+     * Stop all tweens
      * @zh
-     * 插入一个 tween 到队列中。
-     * @method then
-     * @param other @en The rear tween of this tween @zh 当前缓动的后置缓动
+     * 停止所有缓动
      */
-    then (other: Tween<T>): Tween<T> {
-        if (other instanceof Action) {
-            this._actions.push(other.clone());
-        } else {
-            this._actions.push(other._union());
-        }
-        return this;
+    static stopAll (): void {
+        TweenSystem.instance.ActionManager.removeAllActions();
     }
-
     /**
      * @en
-     * Sets tween target.
+     * Stop all tweens by tag
      * @zh
-     * 设置 tween 的 target。
-     * @method target
-     * @param target @en The target of this tween @zh 当前缓动的目标对象
+     * 停止所有指定标签的缓动
      */
-    target (target: T): Tween<T | undefined> {
-        this._target = target;
-        return this;
+    // eslint-disable-next-line @typescript-eslint/ban-types
+    static stopAllByTag (tag: number, target?: object): void {
+        TweenSystem.instance.ActionManager.removeAllActionsByTag(tag, target as any);
     }
-
     /**
      * @en
-     * Start this tween.
+     * Stop all tweens by target
      * @zh
-     * 运行当前 tween。
+     * 停止所有指定对象的缓动
      */
-    start (): Tween<T> {
-        if (!this._target) {
-            warn('Please set target to tween first');
-            return this;
-        }
-        if (this._finalAction) {
-            TweenSystem.instance.ActionManager.removeAction(this._finalAction);
-        }
-        this._finalAction = this._union();
-        this._finalAction.setTag(this._tag);
-        TweenSystem.instance.ActionManager.addAction(this._finalAction, this._target as any, false);
-        return this;
+    // eslint-disable-next-line @typescript-eslint/ban-types
+    static stopAllByTarget (target?: object): void {
+        TweenSystem.instance.ActionManager.removeAllActionsFromTarget(target as any);
     }
 
-    /**
-     * @en
-     * Stop this tween.
-     * @zh
-     * 停止当前 tween。
-     */
-    stop (): Tween<T> {
-        if (this._finalAction) {
-            TweenSystem.instance.ActionManager.removeAction(this._finalAction);
-        }
-        return this;
-    }
-
-    /**
-     * @en
-     * Clone a tween.
-     * @zh
-     * 克隆当前 tween。
-     * @method clone
-     * @param target @en The target of clone tween @zh 克隆缓动的目标对象
-     */
-    clone (target: T): Tween<T> {
-        const action = this._union();
-        return tween(target).then(action.clone() as any);
-    }
-
-    /**
-     * @en
-     * Integrate all previous actions to an action.
-     * @zh
-     * 将之前所有的 action 整合为一个 action。
-     */
-    union (): Tween<T> {
-        const action = this._union();
-        this._actions.length = 0;
-        this._actions.push(action);
-        return this;
-    }
-
+    /**------------------------以下都是push的动作 因此是可以叠加多个的  本质都是向着容器内部添加Action----------------------------------**/
     /**
      * @en
      * Add an action which calculates with absolute value.
@@ -251,6 +184,18 @@ export class Tween<T> {
         return this;
     }
 
+    private static _wrappedSequence (...args: Action[] | Tween<any>[]): ActionInterval {
+        const tmp_args = Tween._tmp_args;
+        tmp_args.length = 0;
+        for (let l = args.length, i = 0; i < l; i++) {
+            const arg = tmp_args[i] = args[i];
+            if (arg instanceof Tween) {
+                tmp_args[i] = arg._union();
+            }
+        }
+
+        return sequence.apply(sequence, tmp_args as any);
+    }
     /**
      * @en
      * Add a sequence action.
@@ -276,57 +221,6 @@ export class Tween<T> {
     parallel (...args: Tween<T>[]): Tween<T> {
         const action = Tween._wrappedParallel(...args);
         this._actions.push(action);
-        return this;
-    }
-
-    /**
-     * @en
-     * Add a repeat action.
-     * This action will integrate before actions to a sequence action as their parameters.
-     * @zh
-     * 添加一个重复 action，这个 action 会将前一个动作作为他的参数。
-     * @param repeatTimes @en The repeat times of this tween @zh 重复次数
-     * @param embedTween @en Optional, embedded tween of this tween @zh 可选，嵌入缓动
-     */
-    repeat (repeatTimes: number, embedTween?: Tween<T>): Tween<T> {
-        /** adapter */
-        if (repeatTimes === Infinity) {
-            return this.repeatForever(embedTween);
-        }
-
-        const actions = this._actions;
-        let action: any;
-
-        if (embedTween instanceof Tween) {
-            action = embedTween._union();
-        } else {
-            action = actions.pop();
-        }
-
-        actions.push(repeat(action, repeatTimes));
-        return this;
-    }
-
-    /**
-     * @en
-     * Add a repeat forever action.
-     * This action will integrate before actions to a sequence action as their parameters.
-     * @zh
-     * 添加一个永久重复 action，这个 action 会将前一个动作作为他的参数。
-     * @method repeatForever
-     * @param embedTween @en Optional, embedded tween of this tween @zh 可选，嵌入缓动
-     */
-    repeatForever (embedTween?: Tween<T>): Tween<T> {
-        const actions = this._actions;
-        let action: any;
-
-        if (embedTween instanceof Tween) {
-            action = embedTween._union();
-        } else {
-            action = actions.pop();
-        }
-
-        actions.push(repeatForever(action as ActionInterval));
         return this;
     }
 
@@ -401,46 +295,170 @@ export class Tween<T> {
         return this;
     }
 
-    /**
-     * @en
-     * Stop all tweens
-     * @zh
-     * 停止所有缓动
-     */
-    static stopAll (): void {
-        TweenSystem.instance.ActionManager.removeAllActions();
-    }
-    /**
-     * @en
-     * Stop all tweens by tag
-     * @zh
-     * 停止所有指定标签的缓动
-     */
-    // eslint-disable-next-line @typescript-eslint/ban-types
-    static stopAllByTag (tag: number, target?: object): void {
-        TweenSystem.instance.ActionManager.removeAllActionsByTag(tag, target as any);
-    }
-    /**
-     * @en
-     * Stop all tweens by target
-     * @zh
-     * 停止所有指定对象的缓动
-     */
-    // eslint-disable-next-line @typescript-eslint/ban-types
-    static stopAllByTarget (target?: object): void {
-        TweenSystem.instance.ActionManager.removeAllActionsFromTarget(target as any);
-    }
+    /**------------------------是对容器内部已经添加Action做的处理----------------------------------**/
 
+    // 将容器当前已经添加过的Action打包成为一个
     private _union (): Action {
-        const actions = this._actions;
+        const actions = this._actions;  //已经添加的action列表
         let action: Action;
         if (actions.length === 1) {
             action = actions[0];
         } else {
             action = sequence(actions);
         }
-
         return action;
+    }
+    /**
+     * @en
+     * Integrate all previous actions to an action.
+     * @zh
+     * 将之前所有的 action 整合为一个 action。
+     */
+    union (): Tween<T> {
+        const action = this._union();
+        this._actions.length = 0;
+        this._actions.push(action);
+        return this;
+    }
+
+    /**
+     * @en
+     * Add a repeat action.
+     * This action will integrate before actions to a sequence action as their parameters.
+     * @zh
+     * 添加一个重复 action，这个 action 会将前一个动作作为他的参数。
+     * @param repeatTimes @en The repeat times of this tween @zh 重复次数
+     * @param embedTween @en Optional, embedded tween of this tween @zh 可选，嵌入缓动
+     */
+    repeat (repeatTimes: number, embedTween?: Tween<T>): Tween<T> {
+        /** adapter */
+        if (repeatTimes === Infinity) {
+            return this.repeatForever(embedTween);
+        }
+
+        const actions = this._actions;
+        let action: any;
+
+        if (embedTween instanceof Tween) {
+            action = embedTween._union();
+        } else {
+            action = actions.pop();
+        }
+
+        actions.push(repeat(action, repeatTimes));
+        return this;
+    }
+
+    /**
+     * @en
+     * Add a repeat forever action.
+     * This action will integrate before actions to a sequence action as their parameters.
+     * @zh
+     * 添加一个永久重复 action，这个 action 会将前一个动作作为他的参数。
+     * @method repeatForever
+     * @param embedTween @en Optional, embedded tween of this tween @zh 可选，嵌入缓动
+     */
+    repeatForever (embedTween?: Tween<T>): Tween<T> {
+        const actions = this._actions;
+        let action: any;
+
+        if (embedTween instanceof Tween) {
+            action = embedTween._union();
+        } else {
+            action = actions.pop();
+        }
+
+        actions.push(repeatForever(action as ActionInterval));
+        return this;
+    }
+
+    /**------------------------以下是直接设置tween的属性  因此最新的会覆盖掉旧的----------------------------------**/
+    /**
+     * @en
+     * Sets tween target.
+     * @zh
+     * 设置 tween 的 target。
+     * @method target
+     * @param target @en The target of this tween @zh 当前缓动的目标对象
+     */
+    target (target: T): Tween<T | undefined> {
+        this._target = target;
+        return this;
+    }
+
+    /**
+     * @en Sets tween tag
+     * @zh 设置缓动的标签
+     * @method tag
+     * @param tag @en The tag set for this tween @zh 为当前缓动设置的标签
+     */
+    tag (tag: number): Tween<T> {
+        this._tag = tag;
+        return this;
+    }
+
+    /**
+     * @en
+     * Insert an action or tween to this sequence.
+     * @zh
+     * 插入一个 tween 到队列中。
+     * @method then
+     * @param other @en The rear tween of this tween @zh 当前缓动的后置缓动
+     */
+    then (other: Tween<T>): Tween<T> {
+        if (other instanceof Action) {
+            this._actions.push(other.clone());
+        } else {
+            this._actions.push(other._union());
+        }
+        return this;
+    }
+
+    /**
+     * @en
+     * Start this tween.
+     * @zh
+     * 运行当前 tween。
+     */
+    start (): Tween<T> {
+        if (!this._target) {
+            warn('Please set target to tween first');
+            return this;
+        }
+        if (this._finalAction) {
+            TweenSystem.instance.ActionManager.removeAction(this._finalAction);
+        }
+        this._finalAction = this._union();
+        this._finalAction.setTag(this._tag);
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+        TweenSystem.instance.ActionManager.addAction(this._finalAction, this._target as any, false);
+        return this;
+    }
+
+    /**
+     * @en
+     * Stop this tween.
+     * @zh
+     * 停止当前 tween。
+     */
+    stop (): Tween<T> {
+        if (this._finalAction) {
+            TweenSystem.instance.ActionManager.removeAction(this._finalAction);
+        }
+        return this;
+    }
+
+    /**
+     * @en
+     * Clone a tween.
+     * @zh
+     * 克隆当前 tween。
+     * @method clone
+     * @param target @en The target of clone tween @zh 克隆缓动的目标对象
+     */
+    clone (target: T): Tween<T> {
+        const action = this._union();
+        return tween(target).then(action.clone() as any);
     }
 
     private _destroy (): void {
@@ -448,19 +466,6 @@ export class Tween<T> {
     }
 
     private static readonly _tmp_args: Tween<any>[] | Action[] = [];
-
-    private static _wrappedSequence (...args: Action[] | Tween<any>[]): ActionInterval {
-        const tmp_args = Tween._tmp_args;
-        tmp_args.length = 0;
-        for (let l = args.length, i = 0; i < l; i++) {
-            const arg = tmp_args[i] = args[i];
-            if (arg instanceof Tween) {
-                tmp_args[i] = arg._union();
-            }
-        }
-
-        return sequence.apply(sequence, tmp_args as any);
-    }
 
     private static _wrappedParallel (...args: Action[] | Tween<any>[]): FiniteTimeAction {
         const tmp_args = Tween._tmp_args;
